@@ -113,7 +113,7 @@ jobs:
             exit 1
           fi
           SCHEME="${FTP_SCHEME:-ftp}"
-          TARGET_BASE_DIR="${FTP_TARGET_BASE_DIR:-/_api/public-modules}"
+          TARGET_BASE_DIR="${FTP_TARGET_BASE_DIR:-/public-modules}"
           TARGET_BASE_DIR="$(echo "${TARGET_BASE_DIR}" | xargs)"
           TARGET_BASE_DIR="${TARGET_BASE_DIR%/}"
           TARGET_DIR="${TARGET_BASE_DIR%/}/${MODULE_UUID}/"
