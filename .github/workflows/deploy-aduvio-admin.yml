@@ -11,142 +11,105 @@ on:
       - closed
   workflow_dispatch:
 
-concurrency:
-  group: publish-module-api-production
-  cancel-in-progress: true
-
 jobs:
-  publish:
-    name: Zip and publish module to API
+  publish-module:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
     environment: FTPUSERNAME
-    permissions:
-      contents: read
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve module metadata
-        id: meta
-        env:
-          MODULE_SOURCE_DIR: ${{ vars.MODULE_SOURCE_DIR }}
-          MODULE_MACHINE_NAME: ${{ vars.MODULE_MACHINE_NAME }}
-          MODULE_VERSION: ${{ vars.MODULE_VERSION }}
-        run: |
-          set -euo pipefail
-
-          module_source_dir="${MODULE_SOURCE_DIR:-.}"
-          style_file="${module_source_dir%/}/css/style.css"
-
-          machine_name="${MODULE_MACHINE_NAME:-}"
-          version="${MODULE_VERSION:-}"
-
-          if [ -f "${style_file}" ]; then
-            if [ -z "${machine_name}" ]; then
-              machine_name="$(awk -F':' 'tolower($1) ~ /^[[:space:]]*machine-name[[:space:]]*$/ {sub(/^[[:space:]]+/, "", $2); sub(/[[:space:]]+$/, "", $2); print $2; exit}' "${style_file}")"
-            fi
-
-            if [ -z "${version}" ]; then
-              version="$(awk -F':' 'tolower($1) ~ /^[[:space:]]*version[[:space:]]*$/ {sub(/^[[:space:]]+/, "", $2); sub(/[[:space:]]+$/, "", $2); print $2; exit}' "${style_file}")"
-            fi
-          fi
-
-          if [ -z "${machine_name}" ] || [ -z "${version}" ]; then
-            echo "Missing module metadata. Set vars.MODULE_MACHINE_NAME and vars.MODULE_VERSION, or provide ${style_file}."
-            exit 1
-          fi
-
-          version_dash="${version//./-}"
-          version_dash="${version_dash//_/-}"
-          zip_name="${machine_name}-${version_dash}.zip"
-
-          echo "module_source_dir=${module_source_dir}" >> "$GITHUB_OUTPUT"
-          echo "machine_name=${machine_name}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "zip_name=${zip_name}" >> "$GITHUB_OUTPUT"
-
-      - name: Build module zip
-        env:
-          MODULE_SOURCE_DIR: ${{ steps.meta.outputs.module_source_dir }}
-          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
-        run: |
-          set -euo pipefail
-
-          cd "${MODULE_SOURCE_DIR}"
-          zip -r "${RUNNER_TEMP}/${ZIP_NAME}" . \
-            -x ".git/*" \
-            -x ".github/*" \
-            -x ".vscode/*" \
-            -x "_changelogs/*" \
-            -x ".gitignore" \
-            -x "**/.gitignore"
-
-      - name: Validate publish settings
-        id: uuid
-        env:
-          FTP_HOST: ${{ vars.FTPHOST }}
-          FTP_USER: ${{ secrets.FTPUSERNAME }}
-          FTP_PASSWORD: ${{ secrets.FTPPASSWORD }}
-          MODULE_UUID_OVERRIDE: ${{ vars.PUBLIC_MODULE_UUID }}
-          MACHINE_NAME: ${{ steps.meta.outputs.machine_name }}
-          MODULE_API_BASE_URL: ${{ vars.MODULE_API_BASE_URL }}
-        run: |
-          for var in FTP_HOST FTP_USER FTP_PASSWORD MACHINE_NAME; do
-            if [ -z "${!var}" ]; then
-              echo "Missing required configuration: ${var}"
-              exit 1
-            fi
-          done
-
-          module_uuid="${MODULE_UUID_OVERRIDE:-}"
-
-          if [ -z "${module_uuid}" ]; then
-            api_base_url="${MODULE_API_BASE_URL:-https://api.aduv.io}"
-            module_uuid="$(curl -fsSL "${api_base_url}/public-modules/fetch-modules.php" \
-              | jq -r --arg machine "${MACHINE_NAME}" '.data[] | select(.machine_name == $machine) | .uuid' \
-              | head -n 1)"
-          fi
-
-          if [ -z "${module_uuid}" ] || [ "${module_uuid}" = "null" ]; then
-            echo "Could not resolve module UUID for machine_name='${MACHINE_NAME}'."
-            echo "Set vars.PUBLIC_MODULE_UUID (recommended fallback) or ensure API returns this module from fetch-modules.php."
-            exit 1
-          fi
-
-          echo "module_uuid=${module_uuid}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload zip to API public-modules
+      - name: Package and upload module zip
         env:
           FTP_HOST: ${{ vars.FTPHOST }}
           FTP_PORT: ${{ vars.FTP_PORT }}
           FTP_USER: ${{ secrets.FTPUSERNAME }}
           FTP_PASSWORD: ${{ secrets.FTPPASSWORD }}
-          MODULE_UUID: ${{ steps.uuid.outputs.module_uuid }}
-          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+          MODULE_SOURCE_DIR: ${{ vars.MODULE_SOURCE_DIR }}
+          PUBLIC_MODULE_UUID: ${{ vars.PUBLIC_MODULE_UUID }}
+          MODULE_API_BASE_URL: ${{ vars.MODULE_API_BASE_URL }}
         run: |
           set -euo pipefail
 
-          ftp_port="${FTP_PORT:-21}"
-          remote_dir="/public-modules/${MODULE_UUID}/"
-          upload_url="ftp://${FTP_HOST}:${ftp_port}${remote_dir}${ZIP_NAME}"
+          # Match Aduvio_admin flow defaults
+          SOURCE_DIR="${MODULE_SOURCE_DIR:-.}"
+          STYLE_FILE="${SOURCE_DIR%/}/css/style.css"
+
+          if [ ! -f "${STYLE_FILE}" ]; then
+            echo "Missing required style file: ${STYLE_FILE}"
+            exit 1
+          fi
+
+          # Required fields from style.css (same required set used in add-inc.php)
+          MODULE_NAME="$(grep -iE '^Module[ -]Name:' "${STYLE_FILE}" | head -n1 | cut -d: -f2- | xargs)"
+          MACHINE_NAME="$(grep -iE '^Machine[ -]Name:' "${STYLE_FILE}" | head -n1 | cut -d: -f2- | xargs)"
+          AUTHOR="$(grep -iE '^Author:' "${STYLE_FILE}" | head -n1 | cut -d: -f2- | xargs)"
+          VERSION="$(grep -iE '^Version:' "${STYLE_FILE}" | head -n1 | cut -d: -f2- | xargs)"
+
+          for v in MODULE_NAME MACHINE_NAME AUTHOR VERSION; do
+            if [ -z "${!v}" ]; then
+              echo "Missing required style.css value: ${v}"
+              exit 1
+            fi
+          done
+
+          # Build zip name exactly like admin flow: machine-name + version with dots replaced by dashes
+          VERSION_DASH="${VERSION//./-}"
+          ZIP_NAME="${MACHINE_NAME}-${VERSION_DASH}.zip"
+
+          # Create staging folder and remove same root-level removables as add-inc.php
+          STAGE_DIR="${RUNNER_TEMP}/public-module-stage"
+          rm -rf "${STAGE_DIR}"
+          mkdir -p "${STAGE_DIR}"
+          cp -R "${SOURCE_DIR}/." "${STAGE_DIR}/"
+
+          rm -rf "${STAGE_DIR}/.git" "${STAGE_DIR}/.vscode" "${STAGE_DIR}/_changelogs"
+          rm -f "${STAGE_DIR}/.gitignore"
+
+          # Zip entire staged folder contents
+          (
+            cd "${STAGE_DIR}"
+            zip -r "${RUNNER_TEMP}/${ZIP_NAME}" .
+          )
+
+          # Resolve module UUID: use explicit var first, else fetch by machine_name
+          MODULE_UUID="${PUBLIC_MODULE_UUID:-}"
+          if [ -z "${MODULE_UUID}" ]; then
+            API_BASE_URL="${MODULE_API_BASE_URL:-https://api.aduv.io}"
+            MODULE_UUID="$(curl -fsSL "${API_BASE_URL}/public-modules/fetch-modules.php" \
+              | jq -r --arg machine "${MACHINE_NAME}" '.data[] | select(.machine_name == $machine) | .uuid' \
+              | head -n1)"
+          fi
+
+          if [ -z "${MODULE_UUID}" ] || [ "${MODULE_UUID}" = "null" ]; then
+            echo "Could not resolve module UUID for machine_name='${MACHINE_NAME}'."
+            echo "Set vars.PUBLIC_MODULE_UUID or create the module once in Aduvio Admin first."
+            exit 1
+          fi
+
+          for v in FTP_HOST FTP_USER FTP_PASSWORD; do
+            if [ -z "${!v:-}" ]; then
+              echo "Missing required configuration: ${v}"
+              exit 1
+            fi
+          done
+
+          PORT="${FTP_PORT:-21}"
+          TARGET_URL="ftp://${FTP_HOST}:${PORT}/public-modules/${MODULE_UUID}/${ZIP_NAME}"
 
           curl --fail --show-error --ftp-create-dirs \
             --user "${FTP_USER}:${FTP_PASSWORD}" \
             --upload-file "${RUNNER_TEMP}/${ZIP_NAME}" \
-            "${upload_url}"
+            "${TARGET_URL}"
 
-      - name: Publish summary
-        env:
-          MACHINE_NAME: ${{ steps.meta.outputs.machine_name }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
-          MODULE_UUID: ${{ steps.uuid.outputs.module_uuid }}
-        run: |
           {
             echo "## Module Published"
-            echo "- Machine name: ${MACHINE_NAME}"
+            echo "- Module: ${MODULE_NAME}"
+            echo "- Machine Name: ${MACHINE_NAME}"
             echo "- Version: ${VERSION}"
-            echo "- Zip: ${ZIP_NAME}"
+            echo "- Author: ${AUTHOR}"
+            echo "- ZIP: ${ZIP_NAME}"
             echo "- API folder: /public-modules/${MODULE_UUID}/"
-          } >> "$GITHUB_STEP_SUMMARY"
+          } >> "${GITHUB_STEP_SUMMARY}"
