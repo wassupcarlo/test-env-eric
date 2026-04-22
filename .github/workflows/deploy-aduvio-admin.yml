@@ -26,6 +26,7 @@ jobs:
           FTP_HOST: ${{ vars.FTPHOST }}
           FTP_PORT: ${{ vars.FTP_PORT }}
           FTP_SCHEME: ${{ vars.FTP_SCHEME }}
+          FTP_TARGET_BASE_DIR: ${{ vars.FTP_TARGET_BASE_DIR }}
           FTP_USER: ${{ secrets.FTPUSERNAME }}
           FTP_PASSWORD: ${{ secrets.FTPPASSWORD }}
           MODULE_SOURCE_DIR: ${{ vars.MODULE_SOURCE_DIR }}
@@ -112,12 +113,21 @@ jobs:
             exit 1
           fi
           SCHEME="${FTP_SCHEME:-ftp}"
-          TARGET_URL="${SCHEME}://${FTP_HOST}:${PORT}/public-modules/${MODULE_UUID}/${ZIP_NAME}"
+          TARGET_BASE_DIR="${FTP_TARGET_BASE_DIR:-/_api/public-modules}"
+          TARGET_DIR="${TARGET_BASE_DIR%/}/${MODULE_UUID}/"
+          TARGET_URL="${SCHEME}://${FTP_HOST}:${PORT}${TARGET_DIR}${ZIP_NAME}"
 
           curl --fail --show-error --silent --connect-timeout 20 --max-time 180 --retry 2 --retry-delay 5 --ftp-pasv --disable-epsv --ftp-create-dirs \
             --user "${FTP_USER}:${FTP_PASSWORD}" \
             --upload-file "${RUNNER_TEMP}/${ZIP_NAME}" \
             "${TARGET_URL}"
+
+          # Verify upload actually exists on remote before marking success.
+          LISTING="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 60 --ftp-pasv --disable-epsv --user "${FTP_USER}:${FTP_PASSWORD}" "${SCHEME}://${FTP_HOST}:${PORT}${TARGET_DIR}")"
+          echo "${LISTING}" | grep -F "${ZIP_NAME}" >/dev/null || {
+            echo "Upload step returned success but ${ZIP_NAME} was not found in ${TARGET_DIR}"
+            exit 1
+          }
 
           {
             echo "## Module Published"
@@ -127,5 +137,5 @@ jobs:
             echo "- Published Version: ${PUBLISH_VERSION}"
             echo "- Author: ${AUTHOR}"
             echo "- ZIP: ${ZIP_NAME}"
-            echo "- API folder: /public-modules/${MODULE_UUID}/"
+            echo "- API folder: ${TARGET_DIR}"
           } >> "${GITHUB_STEP_SUMMARY}"
