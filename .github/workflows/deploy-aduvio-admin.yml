@@ -144,6 +144,8 @@ jobs:
             echo "- Base Version (style.css): ${VERSION}"
             echo "- Published Version: ${PUBLISH_VERSION}"
             echo "- Author: ${AUTHOR}"
+            echo "- FTP host: ${FTP_HOST}:${PORT}"
+            echo "- Module UUID: ${MODULE_UUID}"
             echo "- ZIP: ${ZIP_NAME}"
             echo "- API folder: ${TARGET_DIR}"
           } >> "${GITHUB_STEP_SUMMARY}"
