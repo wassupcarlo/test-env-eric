@@ -114,9 +114,6 @@ jobs:
           SCHEME="${FTP_SCHEME:-ftp}"
           TARGET_URL="${SCHEME}://${FTP_HOST}:${PORT}/public-modules/${MODULE_UUID}/${ZIP_NAME}"
 
-          echo "Uploading ${ZIP_NAME} to /public-modules/${MODULE_UUID}/ on ${FTP_HOST}:${PORT} using ${SCHEME}"
-          ls -lh "${RUNNER_TEMP}/${ZIP_NAME}"
-
           curl --fail --show-error --silent --connect-timeout 20 --max-time 180 --retry 2 --retry-delay 5 --ftp-pasv --disable-epsv --ftp-create-dirs \
             --user "${FTP_USER}:${FTP_PASSWORD}" \
             --upload-file "${RUNNER_TEMP}/${ZIP_NAME}" \
