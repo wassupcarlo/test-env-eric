@@ -1,0 +1,152 @@
+name: Publish Module To API
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+  workflow_dispatch:
+
+concurrency:
+  group: publish-module-api-production
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Zip and publish module to API
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    environment: FTPUSERNAME
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve module metadata
+        id: meta
+        env:
+          MODULE_SOURCE_DIR: ${{ vars.MODULE_SOURCE_DIR }}
+          MODULE_MACHINE_NAME: ${{ vars.MODULE_MACHINE_NAME }}
+          MODULE_VERSION: ${{ vars.MODULE_VERSION }}
+        run: |
+          set -euo pipefail
+
+          module_source_dir="${MODULE_SOURCE_DIR:-.}"
+          style_file="${module_source_dir%/}/css/style.css"
+
+          machine_name="${MODULE_MACHINE_NAME:-}"
+          version="${MODULE_VERSION:-}"
+
+          if [ -f "${style_file}" ]; then
+            if [ -z "${machine_name}" ]; then
+              machine_name="$(awk -F':' 'tolower($1) ~ /^[[:space:]]*machine-name[[:space:]]*$/ {sub(/^[[:space:]]+/, "", $2); sub(/[[:space:]]+$/, "", $2); print $2; exit}' "${style_file}")"
+            fi
+
+            if [ -z "${version}" ]; then
+              version="$(awk -F':' 'tolower($1) ~ /^[[:space:]]*version[[:space:]]*$/ {sub(/^[[:space:]]+/, "", $2); sub(/[[:space:]]+$/, "", $2); print $2; exit}' "${style_file}")"
+            fi
+          fi
+
+          if [ -z "${machine_name}" ] || [ -z "${version}" ]; then
+            echo "Missing module metadata. Set vars.MODULE_MACHINE_NAME and vars.MODULE_VERSION, or provide ${style_file}."
+            exit 1
+          fi
+
+          version_dash="${version//./-}"
+          version_dash="${version_dash//_/-}"
+          zip_name="${machine_name}-${version_dash}.zip"
+
+          echo "module_source_dir=${module_source_dir}" >> "$GITHUB_OUTPUT"
+          echo "machine_name=${machine_name}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${zip_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Build module zip
+        env:
+          MODULE_SOURCE_DIR: ${{ steps.meta.outputs.module_source_dir }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+
+          cd "${MODULE_SOURCE_DIR}"
+          zip -r "${RUNNER_TEMP}/${ZIP_NAME}" . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x ".vscode/*" \
+            -x "_changelogs/*" \
+            -x ".gitignore" \
+            -x "**/.gitignore"
+
+      - name: Validate publish settings
+        id: uuid
+        env:
+          FTP_HOST: ${{ vars.FTPHOST }}
+          FTP_USER: ${{ secrets.FTPUSERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTPPASSWORD }}
+          MODULE_UUID_OVERRIDE: ${{ vars.PUBLIC_MODULE_UUID }}
+          MACHINE_NAME: ${{ steps.meta.outputs.machine_name }}
+          MODULE_API_BASE_URL: ${{ vars.MODULE_API_BASE_URL }}
+        run: |
+          for var in FTP_HOST FTP_USER FTP_PASSWORD MACHINE_NAME; do
+            if [ -z "${!var}" ]; then
+              echo "Missing required configuration: ${var}"
+              exit 1
+            fi
+          done
+
+          module_uuid="${MODULE_UUID_OVERRIDE:-}"
+
+          if [ -z "${module_uuid}" ]; then
+            api_base_url="${MODULE_API_BASE_URL:-https://api.aduv.io}"
+            module_uuid="$(curl -fsSL "${api_base_url}/public-modules/fetch-modules.php" \
+              | jq -r --arg machine "${MACHINE_NAME}" '.data[] | select(.machine_name == $machine) | .uuid' \
+              | head -n 1)"
+          fi
+
+          if [ -z "${module_uuid}" ] || [ "${module_uuid}" = "null" ]; then
+            echo "Could not resolve module UUID for machine_name='${MACHINE_NAME}'."
+            echo "Set vars.PUBLIC_MODULE_UUID (recommended fallback) or ensure API returns this module from fetch-modules.php."
+            exit 1
+          fi
+
+          echo "module_uuid=${module_uuid}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload zip to API public-modules
+        env:
+          FTP_HOST: ${{ vars.FTPHOST }}
+          FTP_PORT: ${{ vars.FTP_PORT }}
+          FTP_USER: ${{ secrets.FTPUSERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTPPASSWORD }}
+          MODULE_UUID: ${{ steps.uuid.outputs.module_uuid }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+
+          ftp_port="${FTP_PORT:-21}"
+          remote_dir="/public-modules/${MODULE_UUID}/"
+          upload_url="ftp://${FTP_HOST}:${ftp_port}${remote_dir}${ZIP_NAME}"
+
+          curl --fail --show-error --ftp-create-dirs \
+            --user "${FTP_USER}:${FTP_PASSWORD}" \
+            --upload-file "${RUNNER_TEMP}/${ZIP_NAME}" \
+            "${upload_url}"
+
+      - name: Publish summary
+        env:
+          MACHINE_NAME: ${{ steps.meta.outputs.machine_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+          MODULE_UUID: ${{ steps.uuid.outputs.module_uuid }}
+        run: |
+          {
+            echo "## Module Published"
+            echo "- Machine name: ${MACHINE_NAME}"
+            echo "- Version: ${VERSION}"
+            echo "- Zip: ${ZIP_NAME}"
+            echo "- API folder: /public-modules/${MODULE_UUID}/"
+          } >> "$GITHUB_STEP_SUMMARY"
