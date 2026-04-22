@@ -30,6 +30,7 @@ jobs:
           MODULE_SOURCE_DIR: ${{ vars.MODULE_SOURCE_DIR }}
           PUBLIC_MODULE_UUID: ${{ vars.PUBLIC_MODULE_UUID }}
           MODULE_API_BASE_URL: ${{ vars.MODULE_API_BASE_URL }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
 
@@ -55,8 +56,15 @@ jobs:
             fi
           done
 
-          # Build zip name exactly like admin flow: machine-name + version with dots replaced by dashes
-          VERSION_DASH="${VERSION//./-}"
+          # Auto-increment patch version as major.minor.<run_number>
+          BASE_VERSION="$(echo "${VERSION}" | cut -d. -f1,2)"
+          if ! echo "${BASE_VERSION}" | grep -Eq '^[0-9]+\.[0-9]+$'; then
+            echo "Version in style.css must start with major.minor (example: 1.1)"
+            exit 1
+          fi
+
+          PUBLISH_VERSION="${BASE_VERSION}.${RUN_NUMBER}"
+          VERSION_DASH="${PUBLISH_VERSION//./-}"
           ZIP_NAME="${MACHINE_NAME}-${VERSION_DASH}.zip"
 
           # Create staging folder and remove same root-level removables as add-inc.php
@@ -108,7 +116,8 @@ jobs:
             echo "## Module Published"
             echo "- Module: ${MODULE_NAME}"
             echo "- Machine Name: ${MACHINE_NAME}"
-            echo "- Version: ${VERSION}"
+            echo "- Base Version (style.css): ${VERSION}"
+            echo "- Published Version: ${PUBLISH_VERSION}"
             echo "- Author: ${AUTHOR}"
             echo "- ZIP: ${ZIP_NAME}"
             echo "- API folder: /public-modules/${MODULE_UUID}/"
