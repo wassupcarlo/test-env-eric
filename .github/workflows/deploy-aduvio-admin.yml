@@ -32,10 +32,21 @@ jobs:
           # Exit on first failure, unset variable usage, or pipeline error.
           set -euo pipefail
 
-          # Resolve module source location and validate required metadata file.
+          # Resolve module source location and find metadata for either layout:
+          # 1) single-panel modules: <src>/css/style.css
+          # 2) admin/user modules:    <src>/_admin/modules/css/style.css
           src="${MODULE_SOURCE_DIR:-.}"
-          style="${src%/}/css/style.css"
-          [ -f "${style}" ] || { echo "Missing ${style}"; exit 1; }
+          style=""
+          for candidate in "${src%/}/css/style.css" "${src%/}/_admin/modules/css/style.css"; do
+            if [ -f "${candidate}" ]; then
+              style="${candidate}"
+              break
+            fi
+          done
+          [ -n "${style}" ] || {
+            echo "Missing style.css (checked ${src%/}/css/style.css and ${src%/}/_admin/modules/css/style.css)"
+            exit 1
+          }
 
           # Parse module metadata from the style.css header.
           module_name="$(grep -iE '^Module[ -]Name:' "${style}" | head -n1 | cut -d: -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
