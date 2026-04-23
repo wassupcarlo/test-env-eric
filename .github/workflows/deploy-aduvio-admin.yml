@@ -75,7 +75,7 @@ jobs:
             exit 1
           }
 
-          for v in FTP_HOST FTP_PORT FTP_SCHEME FTP_USER FTP_PASSWORD; do
+          for v in FTP_HOST FTP_PORT FTP_SCHEME FTP_TARGET_BASE_DIR FTP_USER FTP_PASSWORD; do
             [ -n "${!v:-}" ] || { echo "Missing required config: ${v}"; exit 1; }
           done
           echo "${FTP_HOST}" | grep -Eq '^[0-9]+$' && {
@@ -89,7 +89,7 @@ jobs:
 
           port="${FTP_PORT}"
           scheme="${FTP_SCHEME}"
-          base_dir="${FTP_TARGET_BASE_DIR:-/public-modules}"
+          base_dir="${FTP_TARGET_BASE_DIR}"
           base_dir="$(printf '%s' "${base_dir}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
           base_dir="${base_dir%/}"
           target_dir="${base_dir}/${module_uuid}/"
