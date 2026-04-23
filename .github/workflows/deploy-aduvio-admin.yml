@@ -1,20 +1,24 @@
 name: Publish Module To API
 
+# Run automatically for changes on main, or manually from the Actions tab.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
+  # Build, upload, verify, and publish a module version in one job.
   publish:
     runs-on: ubuntu-latest
     environment: FTPUSERNAME
 
     steps:
+      # Pull repository contents into the runner workspace.
       - uses: actions/checkout@v6
 
       - name: Build and upload module zip
         env:
+          # Deployment and API configuration from repository variables/secrets.
           FTP_HOST: ${{ vars.FTPHOST }}
           FTP_PORT: ${{ vars.FTP_PORT }}
           FTP_SCHEME: ${{ vars.FTP_SCHEME }}
@@ -25,21 +29,26 @@ jobs:
           MODULE_API_BASE_URL: ${{ vars.MODULE_API_BASE_URL }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
+          # Exit on first failure, unset variable usage, or pipeline error.
           set -euo pipefail
 
+          # Resolve module source location and validate required metadata file.
           src="${MODULE_SOURCE_DIR:-.}"
           style="${src%/}/css/style.css"
           [ -f "${style}" ] || { echo "Missing ${style}"; exit 1; }
 
+          # Parse module metadata from the style.css header.
           module_name="$(grep -iE '^Module[ -]Name:' "${style}" | head -n1 | cut -d: -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
           machine_name="$(grep -iE '^Machine[ -]Name:' "${style}" | head -n1 | cut -d: -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
           author="$(grep -iE '^Author:' "${style}" | head -n1 | cut -d: -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
           version="$(grep -iE '^Version:' "${style}" | head -n1 | cut -d: -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
+          # Ensure all metadata fields exist before building artifacts.
           for v in module_name machine_name author version; do
             [ -n "${!v}" ] || { echo "Missing required style.css value: ${v}"; exit 1; }
           done
 
+          # Normalize version to major.minor and append run number for uniqueness.
           base_version="$(printf '%s' "${version}" | cut -d. -f1,2)"
           echo "${base_version}" | grep -Eq '^[0-9]+\.[0-9]+$' || {
             echo "Version must start with major.minor (example: 1.1)"
@@ -48,6 +57,7 @@ jobs:
           publish_version="${base_version}.${RUN_NUMBER}"
           zip_name="${machine_name}-${publish_version//./-}.zip"
 
+          # Stage a clean copy of the module and create the release zip.
           stage="${RUNNER_TEMP}/module-stage"
           rm -rf "${stage}"
           mkdir -p "${stage}"
@@ -56,10 +66,12 @@ jobs:
           rm -f "${stage}/.gitignore"
           (cd "${stage}" && zip -rq "${RUNNER_TEMP}/${zip_name}" .)
 
+          # Validate all required deployment configuration values.
           for v in MODULE_API_BASE_URL FTP_HOST FTP_PORT FTP_SCHEME FTP_TARGET_BASE_DIR FTP_USER FTP_PASSWORD; do
             [ -n "${!v:-}" ] || { echo "Missing required config: ${v}"; exit 1; }
           done
 
+          # Resolve the module UUID from the public modules API by machine name.
           api_base="${MODULE_API_BASE_URL}"
           module_uuid="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 "${api_base}/public-modules/fetch-modules.php" \
             | jq -r --arg machine "${machine_name}" '.data[] | select(.machine_name == $machine) | .uuid' \
@@ -69,6 +81,7 @@ jobs:
             exit 1
           }
 
+          # Basic FTP input sanity checks.
           echo "${FTP_HOST}" | grep -Eq '^[0-9]+$' && {
             echo "FTPHOST looks like a port (${FTP_HOST}). Set a real host."
             exit 1
@@ -78,6 +91,7 @@ jobs:
             exit 1
           }
 
+          # Build final FTP destination URL for this module/version artifact.
           port="${FTP_PORT}"
           scheme="${FTP_SCHEME}"
           base_dir="${FTP_TARGET_BASE_DIR}"
@@ -86,11 +100,13 @@ jobs:
           target_dir="${base_dir}/${module_uuid}/"
           target_url="${scheme}://${FTP_HOST}:${port}${target_dir}${zip_name}"
 
+          # Upload the zip to FTP.
           curl --fail --show-error --silent --connect-timeout 20 --max-time 180 --retry 2 --retry-delay 5 --ftp-pasv --disable-epsv --ftp-create-dirs \
             --user "${FTP_USER}:${FTP_PASSWORD}" \
             --upload-file "${RUNNER_TEMP}/${zip_name}" \
             "${target_url}"
 
+          # Download the uploaded file and verify checksum matches local artifact.
           remote_copy="${RUNNER_TEMP}/remote-${zip_name}"
           curl --fail --show-error --silent --connect-timeout 20 --max-time 120 --ftp-pasv --disable-epsv \
             --user "${FTP_USER}:${FTP_PASSWORD}" \
@@ -101,6 +117,7 @@ jobs:
           remote_sha="$(sha256sum "${remote_copy}" | awk '{print $1}')"
           [ "${local_sha}" = "${remote_sha}" ] || { echo "Upload verification failed"; exit 1; }
 
+          # Record this published version in the API.
           publish_url="${api_base}/public-modules/publish-version.php"
           publish_response="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 \
             --data-urlencode "key=s25FG6_5HieVGlg" \
@@ -113,6 +130,7 @@ jobs:
             exit 1
           }
 
+          # Write a concise deployment summary into the GitHub Actions job summary.
           {
             echo "## Module Published"
             echo "- Module: ${module_name}"
