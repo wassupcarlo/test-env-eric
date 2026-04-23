@@ -61,9 +61,11 @@ jobs:
           rm -f "${stage}/.gitignore"
           (cd "${stage}" && zip -rq "${RUNNER_TEMP}/${zip_name}" .)
 
+          api_base="${MODULE_API_BASE_URL:-}"
+          [ -n "${api_base}" ] || { echo "Missing required config: MODULE_API_BASE_URL"; exit 1; }
+
           module_uuid="${PUBLIC_MODULE_UUID:-}"
           if [ -z "${module_uuid}" ]; then
-            api_base="${MODULE_API_BASE_URL:-https://api.aduv.io}"
             module_uuid="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 "${api_base}/public-modules/fetch-modules.php" \
               | jq -r --arg machine "${machine_name}" '.data[] | select(.machine_name == $machine) | .uuid' \
               | head -n1)"
@@ -73,16 +75,20 @@ jobs:
             exit 1
           }
 
-          for v in FTP_HOST FTP_USER FTP_PASSWORD; do
+          for v in FTP_HOST FTP_PORT FTP_SCHEME FTP_USER FTP_PASSWORD; do
             [ -n "${!v:-}" ] || { echo "Missing required config: ${v}"; exit 1; }
           done
           echo "${FTP_HOST}" | grep -Eq '^[0-9]+$' && {
             echo "FTPHOST looks like a port (${FTP_HOST}). Set a real host."
             exit 1
           }
+          echo "${FTP_PORT}" | grep -Eq '^[0-9]+$' || {
+            echo "FTP_PORT must be a number."
+            exit 1
+          }
 
-          port="${FTP_PORT:-21}"
-          scheme="${FTP_SCHEME:-ftp}"
+          port="${FTP_PORT}"
+          scheme="${FTP_SCHEME}"
           base_dir="${FTP_TARGET_BASE_DIR:-/public-modules}"
           base_dir="$(printf '%s' "${base_dir}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
           base_dir="${base_dir%/}"
@@ -104,7 +110,7 @@ jobs:
           remote_sha="$(sha256sum "${remote_copy}" | awk '{print $1}')"
           [ "${local_sha}" = "${remote_sha}" ] || { echo "Upload verification failed"; exit 1; }
 
-          publish_url="${api_base:-${MODULE_API_BASE_URL:-https://api.aduv.io}}/public-modules/publish-version.php"
+          publish_url="${api_base}/public-modules/publish-version.php"
           publish_response="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 \
             --data-urlencode "key=s25FG6_5HieVGlg" \
             --data-urlencode "machine_name=${machine_name}" \
