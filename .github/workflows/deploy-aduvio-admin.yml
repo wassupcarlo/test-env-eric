@@ -67,7 +67,7 @@ jobs:
           }
 
           # Fetch latest published version from the API and compute patch counter.
-          # Resets to 1 when major.minor changes; increments otherwise.
+          # Resets to 0 when major.minor changes; increments otherwise.
           api_modules_response="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 "${MODULE_API_BASE_URL}/public-modules/fetch-modules.php")"
           latest_published="$(printf '%s' "${api_modules_response}" | jq -r --arg machine "${machine_name}" '.data[] | select(.machine_name == $machine) | .version' | head -n1)"
           latest_base="$(printf '%s' "${latest_published}" | cut -d. -f1,2)"
@@ -87,10 +87,6 @@ jobs:
           cp -R "${src}/." "${stage}/"
           rm -rf "${stage}/.git" "${stage}/.vscode" "${stage}/_changelogs"
           rm -f "${stage}/.gitignore"
-
-          # Inject full publish_version into style.css so moduleDBUpdate can detect patch updates.
-          stage_style="${stage}/$(realpath --relative-to="${src}" "${style}")"
-          sed -i "s/^Version:.*/Version: ${publish_version}/" "${stage_style}"
 
           (cd "${stage}" && zip -rq "${RUNNER_TEMP}/${zip_name}" .)
 
