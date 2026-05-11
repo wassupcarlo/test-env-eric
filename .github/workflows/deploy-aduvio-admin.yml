@@ -10,7 +10,7 @@ jobs:
   # Build, upload, verify, and publish a module version in one job.
   publish:
     runs-on: ubuntu-latest
-    environment: ADUVIO_MODULE_DEPLOY
+    environment: FTPUSERNAME
 
     steps:
       # Pull repository contents into the runner workspace.
