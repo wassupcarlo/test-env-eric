@@ -77,7 +77,7 @@ jobs:
           else
             publish_patch=0
           fi
-          publish_version="${base_version}.${publish_patch}"
+          [ "${publish_patch}" -eq 0 ] && publish_version="${base_version}" || publish_version="${base_version}.${publish_patch}"
           zip_name="${machine_name}-${publish_version//./-}.zip"
 
           # Stage a clean copy of the module and create the release zip.
