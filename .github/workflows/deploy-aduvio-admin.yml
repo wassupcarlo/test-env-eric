@@ -59,13 +59,25 @@ jobs:
             [ -n "${!v}" ] || { echo "Missing required style.css value: ${v}"; exit 1; }
           done
 
-          # Normalize version to major.minor and append run number for uniqueness.
+          # Normalize version to major.minor.
           base_version="$(printf '%s' "${version}" | cut -d. -f1,2)"
           echo "${base_version}" | grep -Eq '^[0-9]+\.[0-9]+$' || {
             echo "Version must start with major.minor (example: 1.1)"
             exit 1
           }
-          publish_version="${base_version}.${RUN_NUMBER}"
+
+          # Fetch latest published version from the API and compute patch counter.
+          # Resets to 1 when major.minor changes; increments otherwise.
+          api_modules_response="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 "${MODULE_API_BASE_URL}/public-modules/fetch-modules.php")"
+          latest_published="$(printf '%s' "${api_modules_response}" | jq -r --arg machine "${machine_name}" '.data[] | select(.machine_name == $machine) | .version' | head -n1)"
+          latest_base="$(printf '%s' "${latest_published}" | cut -d. -f1,2)"
+          latest_patch="$(printf '%s' "${latest_published}" | cut -d. -f3)"
+          if [ "${latest_base}" = "${base_version}" ]; then
+            publish_patch=$(( ${latest_patch:-0} + 1 ))
+          else
+            publish_patch=1
+          fi
+          publish_version="${base_version}.${publish_patch}"
           zip_name="${machine_name}-${publish_version//./-}.zip"
 
           # Stage a clean copy of the module and create the release zip.
@@ -75,6 +87,11 @@ jobs:
           cp -R "${src}/." "${stage}/"
           rm -rf "${stage}/.git" "${stage}/.vscode" "${stage}/_changelogs"
           rm -f "${stage}/.gitignore"
+
+          # Inject full publish_version into style.css so moduleDBUpdate can detect patch updates.
+          stage_style="${stage}/$(realpath --relative-to="${src}" "${style}")"
+          sed -i "s/^Version:.*/Version: ${publish_version}/" "${stage_style}"
+
           (cd "${stage}" && zip -rq "${RUNNER_TEMP}/${zip_name}" .)
 
           # Validate all required deployment configuration values.
@@ -82,11 +99,9 @@ jobs:
             [ -n "${!v:-}" ] || { echo "Missing required config: ${v}"; exit 1; }
           done
 
-          # Resolve the module UUID from the public modules API by machine name.
+          # Resolve the module UUID from the cached API response.
           api_base="${MODULE_API_BASE_URL}"
-          module_uuid="$(curl --fail --show-error --silent --connect-timeout 20 --max-time 90 "${api_base}/public-modules/fetch-modules.php" \
-            | jq -r --arg machine "${machine_name}" '.data[] | select(.machine_name == $machine) | .uuid' \
-            | head -n1)"
+          module_uuid="$(printf '%s' "${api_modules_response}" | jq -r --arg machine "${machine_name}" '.data[] | select(.machine_name == $machine) | .uuid' | head -n1)"
           [ -n "${module_uuid}" ] && [ "${module_uuid}" != "null" ] || {
             echo "Could not resolve UUID for machine_name='${machine_name}'"
             exit 1
