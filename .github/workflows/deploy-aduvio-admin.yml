@@ -75,7 +75,7 @@ jobs:
           if [ "${latest_base}" = "${base_version}" ]; then
             publish_patch=$(( ${latest_patch:-0} + 1 ))
           else
-            publish_patch=1
+            publish_patch=0
           fi
           publish_version="${base_version}.${publish_patch}"
           zip_name="${machine_name}-${publish_version//./-}.zip"
