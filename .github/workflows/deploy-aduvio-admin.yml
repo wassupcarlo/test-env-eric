@@ -135,7 +135,6 @@ jobs:
             --data-urlencode "machine_name=${machine_name}" \
             --data-urlencode "module_uuid=${module_uuid}" \
             --data-urlencode "version=${publish_version}" \
-            --data-urlencode "git_commit_id=${RUN_NUMBER}" \
             "${publish_url}")"
           echo "${publish_response}" | jq -e '.success == true' >/dev/null || {
             echo "Version log publish failed: ${publish_response}"
