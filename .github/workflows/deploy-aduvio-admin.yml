@@ -22,7 +22,6 @@ jobs:
           FTP_HOST: ${{ vars.FTPHOST }}
           FTP_PORT: ${{ vars.FTP_PORT }}
           FTP_SCHEME: ${{ vars.FTP_SCHEME }}
-          FTP_TARGET_BASE_DIR: ${{ vars.FTP_TARGET_BASE_DIR }}
           FTP_USER: ${{ secrets.FTPUSERNAME }}
           FTP_PASSWORD: ${{ secrets.FTPPASSWORD }}
           MODULE_SOURCE_DIR: ${{ vars.MODULE_SOURCE_DIR }}
@@ -91,7 +90,7 @@ jobs:
           (cd "${stage}" && zip -rq "${RUNNER_TEMP}/${zip_name}" .)
 
           # Validate all required deployment configuration values.
-          for v in MODULE_API_BASE_URL FTP_HOST FTP_PORT FTP_SCHEME FTP_TARGET_BASE_DIR FTP_USER FTP_PASSWORD; do
+          for v in MODULE_API_BASE_URL FTP_HOST FTP_PORT FTP_SCHEME FTP_USER FTP_PASSWORD; do
             [ -n "${!v:-}" ] || { echo "Missing required config: ${v}"; exit 1; }
           done
 
@@ -112,14 +111,10 @@ jobs:
             echo "FTP_PORT must be a number."
             exit 1
           }
-
           # Build final FTP destination URL for this module/version artifact.
           port="${FTP_PORT}"
           scheme="${FTP_SCHEME}"
-          base_dir="${FTP_TARGET_BASE_DIR}"
-          base_dir="$(printf '%s' "${base_dir}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-          base_dir="${base_dir%/}"
-          target_dir="${base_dir}/${module_uuid}/"
+          target_dir="/${module_uuid}/"
           target_url="${scheme}://${FTP_HOST}:${port}${target_dir}${zip_name}"
 
           # Upload the zip to FTP.
