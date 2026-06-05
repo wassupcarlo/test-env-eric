@@ -1,0 +1,39 @@
+name: Daily Merge
+
+on: 
+  schedule:
+    - cron: '0 9 * * *' # Every day at 4:00 AM EST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Prevent two merge jobs from running against master at the same time.
+concurrency:
+  group: daily-merge-staging-to-master
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # Go to master
+      - name: Checkout master branch
+        uses: actions/checkout@v6
+        with:
+          ref: master
+
+    # set up github actions user (needed so that github can identify who made the Merge)
+      - name: Configure Git Identity
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    # fetch staging and merge into master, then push to origin
+      - name: Merge staging into master
+        run: |
+          git fetch origin staging:refs/remotes/origin/staging
+          git merge origin/staging --no-ff -m "Daily merge staging into master"
+          git push origin master
