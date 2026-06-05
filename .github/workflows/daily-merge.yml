@@ -8,9 +8,9 @@ on:
 permissions:
   contents: write
 
-# Prevent two merge jobs from running against master at the same time.
+# Prevent two merge jobs from running against main at the same time.
 concurrency:
-  group: daily-merge-staging-to-master
+  group: daily-merge-staging-to-main
   cancel-in-progress: false
 
 jobs:
@@ -19,11 +19,11 @@ jobs:
 
     steps:
 
-    # Go to master
-      - name: Checkout master branch
+    # Go to main
+      - name: Checkout main branch
         uses: actions/checkout@v6
         with:
-          ref: master
+          ref: main
 
     # set up github actions user (needed so that github can identify who made the Merge)
       - name: Configure Git Identity
@@ -31,9 +31,9 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-    # fetch staging and merge into master, then push to origin
-      - name: Merge staging into master
+    # fetch staging and merge into main, then push to origin
+      - name: Merge staging into main
         run: |
           git fetch origin staging:refs/remotes/origin/staging
-          git merge origin/staging --no-ff -m "Daily merge staging into master"
-          git push origin master
+          git merge origin/staging --no-ff -m "Daily merge staging into main"
+          git push origin main
