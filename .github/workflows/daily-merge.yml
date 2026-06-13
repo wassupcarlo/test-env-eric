@@ -21,18 +21,26 @@ jobs:
 
     steps:
 
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DAILY_MERGE_APP_ID }}
+          private-key: ${{ secrets.DAILY_MERGE_APP_PRIVATE_KEY }}
+
     # Go to main
       - name: Checkout main branch
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
-    # set up github actions user (needed so that github can identify who made the Merge)
+    # Set up the app identity used for merge commits.
       - name: Configure Git Identity
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
+          git config user.email "${{ vars.DAILY_MERGE_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
 
     # fetch staging and merge into main, then push to origin
       - name: Merge staging into main
