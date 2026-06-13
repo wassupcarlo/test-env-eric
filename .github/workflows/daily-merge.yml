@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  # Allow this workflow to start the deployment workflow after pushing main.
+  actions: write
 
 # Prevent two merge jobs from running against main at the same time.
 concurrency:
@@ -24,6 +26,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: main
+          fetch-depth: 0
 
     # set up github actions user (needed so that github can identify who made the Merge)
       - name: Configure Git Identity
