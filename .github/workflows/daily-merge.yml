@@ -2,7 +2,7 @@ name: Daily Merge
 
 on: 
   schedule:
-    - cron: '0 9 * * *' # Every day at 4:00 AM ESThhhhhhjjjooooooo
+    - cron: '0 9 * * *' # Every day at 4:00 AM EST
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
 
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.DAILY_MERGE_APP_ID }}
           private-key: ${{ secrets.DAILY_MERGE_APP_PRIVATE_KEY }}
