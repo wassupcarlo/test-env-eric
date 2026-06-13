@@ -2,7 +2,7 @@ name: Daily Merge
 
 on: 
   schedule:
-    - cron: '0 9 * * *' # Every day at 4:00 AM ESThhhh
+    - cron: '0 9 * * *' # Every day at 4:00 AM ESThhhhhhjjj
   workflow_dispatch:
 
 permissions:
